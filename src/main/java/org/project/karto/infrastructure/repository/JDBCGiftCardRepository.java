@@ -171,49 +171,48 @@ public class JDBCGiftCardRepository implements GiftCardRepository {
 
     @Override
     public Result<UserActivitySnapshot, Throwable> findBy(UUID userID) {
-        String total_spent_sql = """
+        String totalSpentSql = """
                 SELECT SUM(total_amount) FROM chck WHERE id = ? AND creation_date >= ?
                 """;
 
-        var total_spent_result = jet.read(total_spent_sql,
+        var totalSpentResult = jet.read(totalSpentSql,
                 rs -> rs.getBigDecimal(1),
                 userID.toString(),
                 LocalDateTime.now().minusDays(13)
         );
 
-        if (!total_spent_result.success()) {
-            return Result.failure(total_spent_result.throwable());
+        if (!totalSpentResult.success()) {
+            return Result.failure(totalSpentResult.throwable());
         }
 
-
-        String num_of_cards_bought_sql = """
+        String numOfCardsBoughtSql = """
                 SELECT COUNT(*) FROM card_purchase_intent WHERE id = ? AND creation_date >= ? AND status = SUCCESS
                 """;
 
-        var num_of_cards_bought_result = jet.read(num_of_cards_bought_sql,
+        var numOfCardsBoughtResult = jet.read(numOfCardsBoughtSql,
                 rs -> rs.getLong(1),
                 userID.toString(),
                 LocalDateTime.now().minusDays(13)
         );
 
-        if (!num_of_cards_bought_result.success()) {
-            return Result.failure(num_of_cards_bought_result.throwable());
+        if (!numOfCardsBoughtResult.success()) {
+            return Result.failure(numOfCardsBoughtResult.throwable());
         }
 
-        String last_transaction_date_sql = """
+        String lastTransactionDateSql = """
                 SELECT creation_date FROM chck ORDER BY creation_date DESC LIMIT 1 WHERE id = ?
                 """;
 
-        var last_transaction_date_result = jet.read(last_transaction_date_sql,
+        var lastTransactionDateResult = jet.read(lastTransactionDateSql,
                 rs -> rs.getTimestamp(1),
                 userID.toString()
         );
 
-        if (!last_transaction_date_result.success()) {
-            return Result.failure(last_transaction_date_result.throwable());
+        if (!lastTransactionDateResult.success()) {
+            return Result.failure(lastTransactionDateResult.throwable());
         }
 
-        String num_of_consecutive_active_days_sql = """
+        String numOfConsecutiveActiveDaysSql = """
                 WITH daily_activity AS (
                 SELECT DISTINCT CAST(creation_date AS DATE) AS activity_date
                 FROM chck
@@ -233,24 +232,46 @@ public class JDBCGiftCardRepository implements GiftCardRepository {
                 WHERE grp = (SELECT grp FROM consecutive_days WHERE activity_date = CURRENT_DATE);
                 """;
 
-        var num_of_consecutive_active_days_result = jet.read(num_of_consecutive_active_days_sql,
+        var numOfConsecutiveActiveDaysResult = jet.read(numOfConsecutiveActiveDaysSql,
                 rs -> rs.getInt(1),
                 LocalDate.now(),
                 userID.toString()
         );
 
-        if (!num_of_consecutive_active_days_result.success()) {
-            return Result.failure(num_of_consecutive_active_days_result.throwable());
+        if (!numOfConsecutiveActiveDaysResult.success()) {
+            return Result.failure(numOfConsecutiveActiveDaysResult.throwable());
         }
 
-        BigDecimal total_spent = total_spent_result.orElseThrow();
-        long num_of_cards_bought = num_of_cards_bought_result.orElseThrow();
-        LocalDateTime last_transaction_date = last_transaction_date_result.orElseThrow().toLocalDateTime();
-        int num_of_consecutive_active_days = num_of_consecutive_active_days_result.orElseThrow();
+        String maxCashbackRateSql = """
+                SELECT reached_max_cashback_rate FROM user_account
+                WHERE id = ?
+                """;
 
-        //TODO lastUsageReachedMaximumCashbackRate <<<<<
+        var maxCashbackRateResult = jet.read(maxCashbackRateSql,
+                rs -> rs.getBoolean(1),
+                userID.toString()
+        );
 
-        throw new RuntimeException("TODO");
+        if (!maxCashbackRateResult.success()) {
+            return Result.failure(maxCashbackRateResult.throwable());
+        }
+
+        BigDecimal totalSpent = totalSpentResult.orElseThrow();
+        long numOfCardsBought = numOfCardsBoughtResult.orElseThrow();
+        LocalDateTime lastTransactionDate = lastTransactionDateResult.orElseThrow().toLocalDateTime();
+        int numOfConsecutiveActiveDays = numOfConsecutiveActiveDaysResult.orElseThrow();
+        boolean maxCashbackRate = maxCashbackRateResult.orElseThrow();
+
+        return Result.success(
+                new UserActivitySnapshot(
+                        userID,
+                        totalSpent,
+                        numOfCardsBought,
+                        lastTransactionDate,
+                        numOfConsecutiveActiveDays,
+                        maxCashbackRate
+                )
+        );
     }
 
     private GiftCard mapGiftCard(ResultSet rs) throws SQLException {
